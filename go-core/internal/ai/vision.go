@@ -75,7 +75,7 @@ func (m *Manager) VisionJSON(ctx context.Context, prompt, mimeType, b64Data stri
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", p.ID, err)
 	}
-	defer resp.Body.Close()
+	defer drainAndClose(resp)
 	var out struct {
 		Candidates []struct {
 			Content struct {

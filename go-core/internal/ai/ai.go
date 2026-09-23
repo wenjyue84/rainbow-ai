@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -16,6 +17,38 @@ import (
 
 	"rainbow-core/internal/config"
 )
+
+// drainAndClose reads resp.Body to EOF before closing it. json.Decoder stops
+// as soon as it has scanned one complete top-level value (the closing brace),
+// so on a self-terminating JSON response it typically never issues the final
+// Read that returns io.EOF — net/http's Transport treats that as "body not
+// fully consumed" and closes the underlying connection instead of returning
+// it to the idle pool. With every /inbound message hitting an LLM provider,
+// that meant EVERY chat call paid a fresh TCP+TLS handshake instead of
+// reusing a pooled connection: no leaked fds (Close still fires), but rising
+// per-request latency/CPU and connection churn on the single shared
+// http.Client for the whole process. Found 2026-09-10 while investigating
+// the "LLM tier goes dead after 15-30h" symptom first seen 2026-07-08
+// (rainbow-core-go restart-cron band-aid). Strong candidate, not yet proven
+// by a multi-hour live measurement — see log.md 2026-09-10.
+func drainAndClose(resp *http.Response) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	_ = resp.Body.Close()
+}
+
+// newHTTPClient gives each Manager its own Transport (rather than the
+// implicit http.DefaultTransport, package-global and shared by every other
+// HTTP call in the process — dashboard media/avatar proxies included) with
+// explicit idle-connection limits, so a busy multi-profile deployment (6+
+// profiles × 2 managers each) pools connections per LLM provider host
+// predictably instead of contending over the default's MaxIdleConnsPerHost=2.
+func newHTTPClient() *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.MaxIdleConns = 100
+	tr.MaxIdleConnsPerHost = 10
+	tr.IdleConnTimeout = 90 * time.Second
+	return &http.Client{Transport: tr}
+}
 
 // ChatMessage is an OpenAI-style chat message.
 type ChatMessage struct {
@@ -48,7 +81,7 @@ type Manager struct {
 // New builds a Manager. Provider order: llm-settings selectedProviders first
 // (by priority), then any remaining enabled providers.
 func New(prof *config.Profile) *Manager {
-	m := &Manager{prof: prof, client: &http.Client{}}
+	m := &Manager{prof: prof, client: newHTTPClient()}
 	seen := map[string]bool{}
 	for _, id := range prof.Selected {
 		if p, ok := prof.ProviderByID[id]; ok && !seen[id] {
@@ -71,7 +104,7 @@ func New(prof *config.Profile) *Manager {
 // keeps guest prose on the stronger model while T4 classification stays on the
 // cheap/fast 8B via New.
 func NewReplyManager(prof *config.Profile) *Manager {
-	m := &Manager{prof: prof, client: &http.Client{}}
+	m := &Manager{prof: prof, client: newHTTPClient()}
 	seen := map[string]bool{}
 	for _, p := range prof.Providers { // enabled, priority-sorted
 		if !seen[p.ID] {
@@ -243,7 +276,7 @@ func (m *Manager) chatOpenAI(ctx context.Context, p config.Provider, key string,
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", p.ID, err)
 	}
-	defer resp.Body.Close()
+	defer drainAndClose(resp)
 	var out openAIResp
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, fmt.Errorf("%s: decode: %w", p.ID, err)
@@ -302,7 +335,7 @@ func (m *Manager) chatGemini(ctx context.Context, p config.Provider, key string,
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", p.ID, err)
 	}
-	defer resp.Body.Close()
+	defer drainAndClose(resp)
 	var out struct {
 		Candidates []struct {
 			Content struct {

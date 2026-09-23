@@ -3,8 +3,10 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"rainbow-core/internal/config"
@@ -130,6 +132,36 @@ func TestGenerateReply(t *testing.T) {
 	}
 	if res.Content == "" {
 		t.Error("empty reply")
+	}
+}
+
+// TestChatReusesConnection guards the 2026-07-08 "LLM tier goes dead after
+// 15-30h" root cause: json.NewEncoder always writes a trailing newline after
+// the JSON object, so an undrained body (see drainAndClose) leaves it unread
+// and net/http's Transport refuses to pool the connection — every message
+// then pays a fresh TCP handshake instead of reusing one. Counts distinct
+// connections the httptest server sees across repeated calls; it must stay
+// at 1.
+func TestChatReusesConnection(t *testing.T) {
+	var newConns int32
+	srv := mockOpenAI(t, "hi")
+	srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			atomic.AddInt32(&newConns, 1)
+		}
+	}
+	defer srv.Close()
+	t.Setenv("MOCK_KEY", "test-key")
+
+	prof := testProfile(srv.URL)
+	m := New(prof)
+	for i := 0; i < 5; i++ {
+		if _, err := m.Chat(context.Background(), []ChatMessage{{Role: "user", Content: "hi"}}, 100, 0.2, false); err != nil {
+			t.Fatalf("Chat #%d: %v", i, err)
+		}
+	}
+	if got := atomic.LoadInt32(&newConns); got != 1 {
+		t.Errorf("new connections opened = %d, want 1 (response body not being drained defeats keep-alive)", got)
 	}
 }
 

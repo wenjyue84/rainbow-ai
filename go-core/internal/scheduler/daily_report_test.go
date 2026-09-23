@@ -49,6 +49,32 @@ func TestBuildDailyReport(t *testing.T) {
 	}
 }
 
+// TestBuildDailyReportPaymentStatusContract covers the 2026-09-22 PMS2 contract:
+// "needs chasing" = paymentStatus == "owing", never isPaid alone.
+//   - C1: isPaid=false, outstandingAmount=0, paymentStatus="settled" -> must NOT be listed
+//     (this exact shape was the 2026-09-22 false positive).
+//   - isPaid=true, outstandingAmount=550, paymentStatus="owing" -> must be listed with RM550.
+func TestBuildDailyReportPaymentStatusContract(t *testing.T) {
+	now := time.Date(2026, 6, 30, 11, 30, 0, 0, time.UTC)
+	g := fakeGetter{
+		units: `[{"number":"C11","section":"A"},{"number":"C12","section":"A"}]`,
+		guests: `[
+			{"unitNumber":"C11","name":"Dara","isPaid":false,"outstandingAmount":0,"paymentStatus":"settled","expectedCheckoutDate":"2026-07-05"},
+			{"unitNumber":"C12","name":"Emir","isPaid":true,"outstandingAmount":550,"paymentStatus":"owing","expectedCheckoutDate":"2026-07-05"}
+		]`,
+	}
+	report, err := BuildDailyReport(context.Background(), g, now)
+	if err != nil {
+		t.Fatalf("BuildDailyReport: %v", err)
+	}
+	if strings.Contains(report, "Dara") {
+		t.Errorf("C1 false-positive: isPaid=false/paymentStatus=settled guest Dara must not be listed as unpaid, report:\n%s", report)
+	}
+	if !strings.Contains(report, "Emir") || !strings.Contains(report, "RM550") {
+		t.Errorf("expected owing guest Emir with RM550, report:\n%s", report)
+	}
+}
+
 func TestBuildDailyReportWrappedGuests(t *testing.T) {
 	now := time.Date(2026, 6, 30, 11, 30, 0, 0, time.UTC)
 	g := fakeGetter{

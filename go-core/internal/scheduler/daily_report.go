@@ -22,13 +22,27 @@ type unitData struct {
 }
 
 type guestData struct {
-	UnitNumber           string `json:"unitNumber"`
-	Name                 string `json:"name"`
-	IsPaid               bool   `json:"isPaid"`
-	IsCheckedIn          *bool  `json:"isCheckedIn"`
-	ExpectedCheckoutDate string `json:"expectedCheckoutDate"`
-	Status               string `json:"status"`
-	PaymentAmount        string `json:"paymentAmount"`
+	UnitNumber           string  `json:"unitNumber"`
+	Name                 string  `json:"name"`
+	IsPaid               bool    `json:"isPaid"`
+	IsCheckedIn          *bool   `json:"isCheckedIn"`
+	ExpectedCheckoutDate string  `json:"expectedCheckoutDate"`
+	Status               string  `json:"status"`
+	PaymentAmount        string  `json:"paymentAmount"`
+	OutstandingAmount    float64 `json:"outstandingAmount"`
+	PaymentStatus        string  `json:"paymentStatus"`
+}
+
+// isOwing reports whether g needs chasing under the 2026-09-22 contract:
+// paymentStatus == "owing". Falls back to the legacy !IsPaid check only when
+// PaymentStatus is empty (old server that hasn't shipped the new field yet) —
+// never trust isPaid alone once paymentStatus is present (that combination
+// was the 2026-09-22 C1 false positive: isPaid=false while fully paid).
+func (g guestData) isOwing() bool {
+	if g.PaymentStatus != "" {
+		return g.PaymentStatus == "owing"
+	}
+	return !g.IsPaid
 }
 
 // BuildDailyReport fetches units + checked-in guests and formats an occupancy /
@@ -71,9 +85,15 @@ func BuildDailyReport(ctx context.Context, pms Getter, now time.Time) (string, e
 		if g.IsCheckedIn != nil && !*g.IsCheckedIn {
 			continue
 		}
-		if !g.IsPaid {
+		if g.isOwing() {
 			line := "  • " + g.UnitNumber + " — " + g.Name
-			if amt, err := strconv.ParseFloat(g.PaymentAmount, 64); err == nil && amt > 0 {
+			amt := g.OutstandingAmount
+			if amt <= 0 {
+				if parsed, err := strconv.ParseFloat(g.PaymentAmount, 64); err == nil {
+					amt = parsed
+				}
+			}
+			if amt > 0 {
 				line += fmt.Sprintf(" (RM%.0f)", amt)
 			}
 			unpaid = append(unpaid, line)

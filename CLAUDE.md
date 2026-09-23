@@ -126,7 +126,7 @@ rainbow-ai runs the **Ramli** bot for the Senai worker housing business, acting 
 | WhatsApp bridge | port 8790 (instanceId: `senai`), number +60103341058 |
 | MCP server | `POST https://senai.wenjyue.com/api/mcp` (JSON-RPC 2.0) |
 | MCP auth | `x-api-key: <MCP_API_KEY>` |
-| Senai app repo | `C:\Users\Jyue\Documents\1-projects\Software Projects\senai-room-management-system` |
+| Senai app repo | `C:\Users\Jyue\Documents\2-areas\Software Projects\senai-room-management-system` |
 | Senai app live | https://senai.wenjyue.com |
 
 **MCP Tools available (senai rental app exposes):**
@@ -137,19 +137,48 @@ rainbow-ai runs the **Ramli** bot for the Senai worker housing business, acting 
 
 **Ramli agent:** `~/.claude/agents/ramli.md` — Juno-side agent that orchestrates WA sends via the bridge.
 
-## WhatsApp transport = baileys-engine (since 2026-09-08)
+## WhatsApp transport = WA Hub (`wa-hub`, since 2026-09-08; renamed from baileys-engine 2026-09-09)
 
-The Baileys bridges are **not part of this repo any more**. They are the product **baileys-engine**
-(repo `wenjyue84/baileys-engine`, local `Software Projects/baileys-engine/`, project area
-`Documents/1-projects/baileys-engine/` — read its `index.md`). One bridge process per number
+The Baileys bridges are **not part of this repo any more**. They are the product **WA Hub**
+(repo `wenjyue84/wa-hub`, local `Software Projects/wa-hub/`, project area
+`Documents/2-areas/Software Projects/wa-hub/` — read its `index.md`). One bridge process per number
 (pelangi :8789, senai :8790, jayson :8791, rachel :8792) + engine-admin at
-https://baileys.wenjyue.com (:8800), the source of truth for every number (telco, SIM, consumers,
+https://wahub.wenjyue.com (:8800), the source of truth for every number (telco, SIM, consumers,
 events, health). rainbow-core reaches a bridge through the engine proxy
 `http://127.0.0.1:8800/i/<instance>` (`BRIDGE_INSTANCE_URLS`, `BRIDGE_URL_<PROFILE>`) and reads
-Master → Numbers from `BAILEYS_ENGINE_URL` (+ `BAILEYS_ENGINE_KEY`). Never touch an `auth/<inst>` dir.
+Master → Numbers from `WA_HUB_URL` (+ `WA_HUB_KEY`; legacy `BAILEYS_ENGINE_URL/KEY` still read). Never touch an `auth/<inst>` dir.
+
+## Web chat transport = webchat-hub (since 2026-09-09)
+
+The guest web chat is **not part of this repo any more** either. It is the product **webchat-hub**
+(repo `wenjyue84/webchat-hub`, local `Software Projects/webchat-hub/`, project area
+`Documents/2-areas/Software Projects/webchat-hub/`), public at https://chat.wenjyue.com/<profile> (visitor) and
+https://chat.wenjyue.com/admin (operator inbox), port 8810 on Hetzner. It speaks the wa-hub subscriber
+contract, so rainbow-core needs env only: `PROFILE_INSTANCES` + `BRIDGE_INSTANCE_URLS` entries
+`webchat-pelangi=pelangi`, `webchat-southern=southern-homestay`, `webchat-dental=dental-world` →
+`http://127.0.0.1:8810/i/<instanceId>`; the hub's tenant `sendToken` = `BRIDGE_SEND_TOKEN`, its
+`subscriber.inboundKey` = `INBOUND_API_KEY`. With `WEBCHAT_HUB_URL` set, go-core `GET /chat/<profile>`
+302s to the hub (`internal/admin/webchat_page.go`); unset = legacy inline page. `/chat/<profile>/poll`
+and `src/public/webchat.html` stay until fnb-online-ordering / pms-capsule switch their iframes to
+`chat.wenjyue.com/<profile>/embed`.
 
 ## Architecture Documentation
 
 | Doc | Purpose |
 |-----|---------|
 | `docs/architecture/whatsapp-transport-layer.md` | Baileys vs Cloud API analysis, ToS risk, migration plan |
+
+## Tools
+
+Use these before writing an ad-hoc script. Every path below existed on disk when this block was generated (2026-09-11, hub_lint.py HUB-010); regenerate with `uv run …/_tools/hub-lint/hub_lint.py --path <this folder> --fix --rules HUB-010`.
+
+| Kind | Command (run from this folder) | Notes |
+|---|---|---|
+| ACI | `node scripts/aci/rainbow-aci.mjs describe|status|query|test` | JSON out; `describe --json` lists suites. Coverage: `1-projects/chief-of-staff/wiki/aci-coverage.md` |
+| ACI | `node scripts/aci/rainbow-go-aci.mjs describe|status|query|test` | JSON out; `describe --json` lists suites. Coverage: `1-projects/chief-of-staff/wiki/aci-coverage.md` |
+| npm (in `bridge/`) | `npm run start` | from `bridge/package.json` |
+| npm | `npm run dev`, `npm run build:dashboard`, `npm run build`, `npm run start`, `npm run test`, `npm run test:watch`, `npm run test:all`, `npm run test:integration`, `npm run test:semantic`, `npm run test:coverage`, `npm run test:eval`, `npm run test:eval:view` | from `package.json` |
+| npm (in `sidecar/`) | `npm run start` | from `sidecar/package.json` |
+| Go | `go run .` / `go test ./...` in `go-core/` | from `go-core/go.mod` |
+| scripts | `node scripts/convert-schema-to-sqlite.mjs`, `node scripts/debug-ddl-split.mjs`, `node scripts/fix-50suite-misroutes-20260721.mjs` +17 more in `scripts/` | 20 file(s) |
+| scripts | `node scripts/aci/gold-eval.mjs`, `node scripts/aci/tier-ablation.mjs`, `node scripts/aci/yoongmei-chatbot-test.mjs` | 3 file(s) |

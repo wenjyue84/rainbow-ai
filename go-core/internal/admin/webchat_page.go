@@ -102,6 +102,14 @@ func (h *Handler) chatPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The guest chat moved to webchat-hub (chat.wenjyue.com, 2026-09-09).
+	// WEBCHAT_HUB_URL set → 302 there; unset → legacy inline page (dev / fallback).
+	if hub := strings.TrimRight(os.Getenv("WEBCHAT_HUB_URL"), "/"); hub != "" {
+		w.Header().Set("Cache-Control", "no-cache")
+		http.Redirect(w, r, hub+"/"+profile, http.StatusFound)
+		return
+	}
+
 	displayName, botName, greeting := h.chatPageMeta(profile)
 	cfg, _ := json.Marshal(map[string]any{
 		"profile":  profile,

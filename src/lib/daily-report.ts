@@ -23,6 +23,20 @@ interface GuestData {
   paymentAmount: string | null;
   isCheckedIn: boolean;
   status: string | null;
+  // NEW CONTRACT (2026-09-22, PMS2 Go API): outstandingAmount/paymentStatus
+  // are the source of truth for "needs chasing" — see isOwing() below.
+  outstandingAmount?: number;
+  paymentStatus?: string;
+}
+
+// isOwing reports whether guest needs chasing under the 2026-09-22 contract:
+// paymentStatus === 'owing'. Falls back to the legacy !isPaid check only when
+// paymentStatus is undefined (old server that hasn't shipped the new field
+// yet) — never trust isPaid alone once paymentStatus is present (that
+// combination was the 2026-09-22 C1 false positive: isPaid=false while fully
+// paid).
+function isOwing(guest: GuestData): boolean {
+  return guest.paymentStatus !== undefined ? guest.paymentStatus === 'owing' : !guest.isPaid;
 }
 
 const SECTION_CONFIG: { key: string; label: string; emoji: string }[] = [
@@ -85,14 +99,14 @@ export async function buildDailyReport(): Promise<string> {
       const guest = guestByUnit.get(cap.number);
 
       if (guest) {
-        const paid = guest.isPaid;
-        const icon = paid ? '\u2705' : '\u274C';
+        const owing = isOwing(guest);
+        const icon = owing ? '\u274C' : '\u2705';
         const checkout = formatDate(guest.expectedCheckoutDate);
         const statusPrefix = guest.status === 'blacklisted' ? 'blacklist ' : '';
         let line = `${num}) ${statusPrefix}${guest.name} ${icon}${checkout}`;
 
-        if (!paid && guest.paymentAmount) {
-          const amt = parseFloat(guest.paymentAmount);
+        if (owing) {
+          const amt = guest.outstandingAmount ?? (guest.paymentAmount ? parseFloat(guest.paymentAmount) : NaN);
           if (!isNaN(amt) && amt > 0) {
             line += ` (Outstanding RM${Math.round(amt)})`;
           }

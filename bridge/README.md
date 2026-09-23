@@ -2,7 +2,7 @@
 
 The WhatsApp (Baileys) bridge now lives in its own repo:
 **https://github.com/wenjyue84/rainbow-bridge** (private). Local clone:
-`Documents/1-projects/Software Projects/rainbow-bridge/`.
+`Documents/2-areas/Software Projects/rainbow-bridge/`.
 
 The `index.js` here is an older snapshot (2026-08) kept for reference only. It lacks
 `GET /status/:id`, `INBOUND_API_KEY`, `BRIDGE_JID_RATE_LIMIT_OVERRIDES`, `group_accept_invite`

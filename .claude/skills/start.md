@@ -14,7 +14,7 @@ npx kill-port 3002 2>/dev/null || true
 
 ### 2 — Start dev server (background)
 ```bash
-cd "C:/Users/Jyue/Documents/1-projects/Software Projects/rainbow-ai" && npx tsx watch --import ./src/instrumentation.ts src/index.ts
+cd "C:/Users/Jyue/Documents/2-areas/Software Projects/rainbow-ai" && npx tsx watch --import ./src/instrumentation.ts src/index.ts
 ```
 (run in background)
 

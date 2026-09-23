@@ -5,7 +5,7 @@ import { handleToolCall } from './tool-factory.js';
 export const guestTools: MCPTool[] = [
   {
     name: 'pelangi_list_guests',
-    description: 'List all checked-in guests with pagination',
+    description: 'List all checked-in guests with pagination. Each guest carries paymentStatus (settled/owing/platform/unknown), outstandingAmount, and isPaid: paid = paymentStatus in settled/platform; owed amount = outstandingAmount; \'unknown\' = no price on file. Never use isPaid alone to decide who to chase.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -1,4 +1,5 @@
 # digiman MCP Server
+> **Last updated:** 2026-07-11
 
 HTTP-based MCP server + Rainbow AI WhatsApp assistant for digiman operations management.
 

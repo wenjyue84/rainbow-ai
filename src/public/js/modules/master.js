@@ -97,10 +97,10 @@ async function renderNumbers(container) {
 
 function renderLastCheck(lc, script, source, engine) {
   const canRun = script && script.available;
-  const fromEngine = source === 'baileys-engine';
-  const engineUrl = (engine && engine.url) ? String(engine.url).replace(/^http:\/\/127\.0\.0\.1:8800$/, 'https://baileys.wenjyue.com') : '';
+  const fromEngine = source === 'wa-hub' || source === 'baileys-engine';
+  const engineUrl = (engine && engine.url) ? String(engine.url).replace(/^http:\/\/127\.0\.0\.1:8800$/, 'https://wahub.wenjyue.com') : '';
   const srcBadge = fromEngine
-    ? `<a href="${esc(engineUrl || '#')}" target="_blank" rel="noopener" class="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 hover:bg-indigo-100" title="Source of truth for every number: baileys-engine">source: baileys-engine ↗</a>`
+    ? `<a href="${esc(engineUrl || '#')}" target="_blank" rel="noopener" class="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 hover:bg-indigo-100" title="Source of truth for every number: WA Hub (wahub.wenjyue.com)">source: wa-hub ↗</a>`
     : `<span class="text-xs text-neutral-400">hourly cron · after each core restart · on Claude session start</span>`;
   const head = `
     <div class="flex items-center justify-between mb-3">
