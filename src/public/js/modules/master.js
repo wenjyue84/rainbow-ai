@@ -113,8 +113,8 @@ function renderMessageVolume(stats) {
           <tbody>
             ${profiles.map(p => {
               const s = stats[p];
-              return `<tr class="border-t">
-                <td class="px-2 py-1.5 font-mono">${esc(p)}</td>
+              return `<tr class="border-t hover:bg-neutral-50 cursor-pointer" onclick="openNumberChat('${esc(p)}')" title="Open ${esc(p)}'s conversations in Live Chat">
+                <td class="px-2 py-1.5 font-mono text-indigo-600">${esc(p)}</td>
                 <td class="px-2 py-1.5 text-right">${(s.user || 0).toLocaleString()}</td>
                 <td class="px-2 py-1.5 text-right">${(s.assistant || 0).toLocaleString()}</td>
                 <td class="px-2 py-1.5 text-right">${(s.staff || 0).toLocaleString()}</td>
@@ -205,6 +205,9 @@ export function renderInstanceCard(inst, totalCount, msgStats) {
   const msgBadge = msgStats && msgStats.total
     ? `<span class="text-xs text-neutral-400" title="Messages exchanged via Rainbow (all-time)">💬 ${msgStats.total.toLocaleString()}</span>`
     : '';
+  const chatBtn = inst.profile
+    ? `<button type="button" onclick="openNumberChat('${esc(inst.profile)}')" class="text-xs bg-indigo-500 hover:bg-indigo-600 text-white px-2 py-1 rounded transition" title="Open this number's conversations in Live Chat">Chats</button>`
+    : '';
   return `
     <div class="flex items-center justify-between py-2.5 border-b last:border-0">
       <div class="flex items-center gap-3">
@@ -221,11 +224,29 @@ export function renderInstanceCard(inst, totalCount, msgStats) {
       <div class="flex items-center gap-2 flex-shrink-0">
         ${msgBadge}
         <div class="flex gap-1">
+          ${chatBtn}
           ${!online ? `<button type="button" onclick="showInstanceQR('${esc(inst.id)}', '${esc(inst.label || inst.id)}')" class="text-xs bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded transition">QR</button>` : ''}
           ${online ? `<button type="button" onclick="logoutInstance('${esc(inst.id)}')" class="text-xs bg-orange-500 hover:bg-orange-600 text-white px-2 py-1 rounded transition">Logout</button>` : ''}
         </div>
       </div>
     </div>`;
+}
+
+/**
+ * Switch the active profile and jump straight to its Live Chat inbox —
+ * the "click this number, see its conversations" affordance (like WA Hub's
+ * per-JID chat view, but Rainbow shows the whole inbox for that number
+ * since one business number talks to many guest phones, not one JID).
+ * profileSwitcher.switchTo() always lands on Dashboard when leaving Master
+ * (see profile-switcher.js), so we override the hash right after.
+ */
+export function openNumberChat(profileId) {
+  if (!profileId) return;
+  if (window.profileSwitcher && typeof window.profileSwitcher.switchTo === 'function') {
+    window.profileSwitcher.switchTo(profileId);
+  }
+  history.replaceState(null, '', '#live-chat');
+  if (typeof window.loadTab === 'function') window.loadTab('live-chat', null);
 }
 
 // ─── Assistants ──────────────────────────────────────────────────────────────
@@ -544,6 +565,7 @@ export async function masterApplyAll(key, label) {
 window.loadMaster = loadMaster;
 window.switchMasterTab = switchMasterTab;
 window.loadMasterNumbers = loadMasterNumbers;
+window.openNumberChat = openNumberChat;
 window.loadBotTeam = loadBotTeam;
 window.runNumberCheck = runNumberCheck;
 window.masterAddProvider = masterAddProvider;
